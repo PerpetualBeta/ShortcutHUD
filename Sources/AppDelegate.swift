@@ -1,0 +1,290 @@
+import AppKit
+import ApplicationServices
+import SwiftUI
+
+@MainActor
+@Observable
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDelegate {
+
+    private var statusItem: NSStatusItem!
+    private var hudPanel: HUDPanel?
+    private var hudHostingController: NSHostingController<HUDView>?
+    private let hudState = HUDState()
+    private var clickOutsideMonitor: Any?
+
+    /// Strong references to the AX-bearing items for the lifetime of the visible HUD.
+    /// SwiftUI state alone is not enough — view recycling can drop the AXUIElements.
+    private var liveItems: [ShortcutItem] = []
+    private var capturedPID: pid_t = 0
+
+    let updateChecker = JorvikUpdateChecker(repoName: "ShortcutHUD")
+
+    var activationKeyCode: UInt16 = Prefs.loadKeyCode() {
+        didSet { HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers) }
+    }
+    var activationModifiers: NSEvent.ModifierFlags = Prefs.loadModifiers() {
+        didSet { HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers) }
+    }
+
+    func activationDisplayString() -> String {
+        guard activationKeyCode != 0 else { return "Not set" }
+        return JorvikShortcutPanel.displayString(keyCode: activationKeyCode, modifiers: activationModifiers)
+    }
+
+    func persistShortcut() {
+        Prefs.save(keyCode: activationKeyCode, modifiers: activationModifiers)
+    }
+
+    // MARK: - Lifecycle
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+
+        // Prompt for AX permission on first launch — both menu enumeration and the
+        // CGEvent tap require it.
+        _ = AXIsProcessTrustedWithOptions(
+            ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        )
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            JorvikMenuBarPill.apply(to: button)
+        }
+        let menu = NSMenu()
+        menu.delegate = self
+        statusItem.menu = menu
+
+        DistributedNotificationCenter.default.addObserver(
+            self, selector: #selector(appearanceChanged),
+            name: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil
+        )
+
+        // Configure tap with current shortcut and try to install it. Input
+        // Monitoring is a separate TCC permission from Accessibility — without
+        // it CGEventTap silently fails. requestAccess blocks until the user
+        // responds, so dispatch it off-main; the install retries when the app
+        // becomes active again (handler below).
+        HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers)
+        if !HotkeyTap.accessGranted {
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = HotkeyTap.requestAccess()
+            }
+        }
+        _ = HotkeyTap.install()
+        updateHotkeyState()
+
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleHotkey),
+            name: .shortcutHUDHotkey, object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(appBecameActive),
+            name: NSApplication.didBecomeActiveNotification, object: nil
+        )
+
+        updateChecker.checkOnSchedule()
+    }
+
+    @objc private func appearanceChanged() {
+        if let button = statusItem.button { JorvikMenuBarPill.refresh(on: button) }
+    }
+
+    /// Switches the menu-bar icon to a warning glyph when the global hotkey tap
+    /// isn't installed. The user reaches Settings via the existing menu either way.
+    private func updateHotkeyState() {
+        guard let button = statusItem?.button else { return }
+        let installed = HotkeyTap.current != nil
+        let symbolName = installed ? "command.square" : "exclamationmark.triangle.fill"
+        let description = installed ? "ShortcutHUD" : "ShortcutHUD — Input Monitoring required"
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description) {
+            image.isTemplate = true
+            button.image = image
+        }
+        button.toolTip = installed ? nil : "Input Monitoring required — open Settings to grant access"
+        JorvikMenuBarPill.refresh(on: button)
+    }
+
+    @objc private func appBecameActive() {
+        if HotkeyTap.current == nil { _ = HotkeyTap.install() }
+        updateHotkeyState()
+    }
+
+    // MARK: - Status menu
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let built = JorvikMenuBuilder.buildMenu(
+            appName: "ShortcutHUD",
+            aboutAction: #selector(openAbout),
+            settingsAction: #selector(openSettings),
+            target: self
+        )
+        menu.removeAllItems()
+        for item in built.items { built.removeItem(item); menu.addItem(item) }
+    }
+
+    @objc private func openAbout() {
+        JorvikAboutView.showWindow(
+            appName: "ShortcutHUD",
+            repoName: "ShortcutHUD",
+            productPage: "utilities/shortcuthud"
+        )
+    }
+
+    @objc private func openSettings() {
+        let delegate = self
+        JorvikSettingsView.showWindow(appName: "ShortcutHUD", updateChecker: updateChecker) {
+            ShortcutHUDSettingsContent(delegate: delegate)
+        }
+    }
+
+    // MARK: - Hotkey
+
+    @objc private func handleHotkey() {
+        if hudPanel?.isVisible == true {
+            dismissHUD()
+            return
+        }
+        showHUD()
+    }
+
+    // MARK: - HUD lifecycle
+
+    private func showHUD() {
+        // Capture frontmost BEFORE we touch any window state.
+        guard let front = NSWorkspace.shared.frontmostApplication else { return }
+        capturedPID = front.processIdentifier
+
+        // Walk the captured app's menus on a background queue with a hard timeout,
+        // then layer in macOS symbolic hotkeys.
+        var combined: [ShortcutItem] = []
+        combined.append(contentsOf: MenuEnumerator.shortcuts(forPID: capturedPID))
+        combined.append(contentsOf: SymbolicHotkeys.all())
+
+        liveItems = combined
+        hudState.items = combined
+        hudState.query = ""
+        hudState.clampSelection()
+
+        if hudPanel == nil { createPanel() }
+        positionPanel()
+        hudPanel?.makeKeyAndOrderFront(nil)
+        // System shadow defaults to the rectangular window frame; force a
+        // recompute from the rounded-corner alpha mask so the shadow follows
+        // the actual visible shape. Deferred so the layer has rendered first.
+        DispatchQueue.main.async { [weak self] in
+            self?.hudPanel?.invalidateShadow()
+        }
+
+        // Outside-click dismissal — the panel is .nonactivatingPanel so the
+        // captured app keeps frontmost status; we still want clicks elsewhere
+        // to dismiss us.
+        clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            DispatchQueue.main.async { self?.dismissHUD() }
+        }
+    }
+
+    func dismissHUD() {
+        hudPanel?.orderOut(nil)
+        if let m = clickOutsideMonitor {
+            NSEvent.removeMonitor(m)
+            clickOutsideMonitor = nil
+        }
+        liveItems.removeAll()
+    }
+
+    private func createPanel() {
+        // Borderless + resizable. No `.titled` (it reserved invisible pixels
+        // that cropped the footer) and no `.fullSizeContentView` (only relevant
+        // with a title bar). HUDPanel.canBecomeKey lets us still receive keys.
+        let p = HUDPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 880, height: 680),
+            styleMask: [.nonactivatingPanel, .resizable],
+            backing: .buffered, defer: false
+        )
+        p.minSize = NSSize(width: 520, height: 400)
+        p.setFrameAutosaveName("ShortcutHUD.HUDPanel")
+        p.isFloatingPanel = true
+        p.level = .floating
+        // Appear on whichever space the user is on when the hotkey fires, and
+        // overlay full-screen apps. Without this, the panel stays on the space
+        // it was first created on.
+        p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        // Borderless: drag anywhere on the visual-effect background to move the
+        // panel. Rows have their own tap gestures so they aren't drag handles.
+        p.isMovableByWindowBackground = true
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = true
+        p.hidesOnDeactivate = false
+        p.hudDelegate = self
+
+        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 880, height: 680))
+        bg.autoresizingMask = [.width, .height]
+        bg.material = .underWindowBackground
+        bg.blendingMode = .behindWindow
+        bg.state = .active
+        bg.wantsLayer = true
+        bg.layer?.cornerRadius = 12
+        bg.layer?.masksToBounds = true
+        // CALayer cornerRadius alone doesn't propagate to the window's alpha
+        // mask, so the system shadow draws as a rectangle around the rounded
+        // visible shape. NSVisualEffectView.maskImage *does* propagate, and
+        // AppKit uses it to compute the shadow shape correctly.
+        let r: CGFloat = 12
+        let mask = NSImage(size: NSSize(width: r * 2 + 1, height: r * 2 + 1), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
+            return true
+        }
+        mask.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
+        mask.resizingMode = .stretch
+        bg.maskImage = mask
+
+        let host = NSHostingController(rootView: HUDView(state: hudState) { [weak self] item in
+            self?.activate(item)
+        })
+        host.view.frame = bg.bounds
+        host.view.autoresizingMask = [.width, .height]
+        bg.addSubview(host.view)
+
+        p.contentView = bg
+        hudPanel = p
+        hudHostingController = host
+    }
+
+    private func positionPanel() {
+        guard let panel = hudPanel else { return }
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+                  ?? NSScreen.main
+        guard let s = screen else { return }
+        let size = panel.frame.size
+        let x = s.visibleFrame.midX - size.width / 2
+        let y = s.visibleFrame.midY - size.height / 2 + 80   // sit a touch above centre
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    private func activate(_ item: ShortcutItem) {
+        guard item.enabled else { return }
+        switch item.source {
+        case .app:
+            dismissHUD()
+            MenuEnumerator.activate(item, targetPID: capturedPID)
+        case .system:
+            // v0.1: list-only for system shortcuts. Just dismiss.
+            dismissHUD()
+        }
+    }
+
+    // MARK: - HUDDelegate
+
+    func hudMoveSelectionUp()   { hudState.moveSelection(by: -1) }
+    func hudMoveSelectionDown() { hudState.moveSelection(by:  1) }
+    func hudActivateSelected() {
+        if let item = hudState.selectedItem { activate(item) }
+    }
+    func hudDismiss() { dismissHUD() }
+}
