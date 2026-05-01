@@ -155,11 +155,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         guard let front = NSWorkspace.shared.frontmostApplication else { return }
         capturedPID = front.processIdentifier
 
-        // Walk the captured app's menus on a background queue with a hard timeout,
-        // then layer in macOS symbolic hotkeys.
+        // Walk every shortcut source we know how to read: the captured app's
+        // menus, per-app NSUserKeyEquivalents + Rectangle-style preference
+        // dicts, the global keyboard equivalents, the Services menu, the
+        // user's Hammerspoon Lua bindings, Keyboard Maestro hotkey triggers,
+        // and the macOS system symbolic hotkeys. AX and disk I/O run on
+        // background queues with hard timeouts.
         var combined: [ShortcutItem] = []
         combined.append(contentsOf: MenuEnumerator.shortcuts(forPID: capturedPID))
+        combined.append(contentsOf: MenuEnumerator.userKeyEquivalents())
+        combined.append(contentsOf: MenuEnumerator.globalUserKeyEquivalents())
+        combined.append(contentsOf: MenuEnumerator.servicesShortcuts())
+        combined.append(contentsOf: MenuEnumerator.hammerspoonShortcuts())
+        combined.append(contentsOf: MenuEnumerator.keyboardMaestroShortcuts())
         combined.append(contentsOf: SymbolicHotkeys.all())
+
+        // Filter out shortcuts bound to keys that aren't on any connected
+        // keyboard — they can't be triggered, so listing them only confuses.
+        let unavailable = MenuEnumerator.unavailableKeyCodes()
+        if !unavailable.isEmpty {
+            combined.removeAll { item in
+                guard let v = item.virtualKey else { return false }
+                return unavailable.contains(v)
+            }
+        }
 
         liveItems = combined
         hudState.items = combined
@@ -272,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         switch item.source {
         case .app:
             dismissHUD()
-            MenuEnumerator.activate(item, targetPID: capturedPID)
+            MenuEnumerator.activate(item)
         case .system:
             // v0.1: list-only for system shortcuts. Just dismiss.
             dismissHUD()

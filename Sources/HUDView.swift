@@ -189,8 +189,9 @@ private struct ShortcutRow: View {
             )
         case .system:
             return ShortcutFormatter.system(
-                keyCode: item.virtualKey ?? 0,
-                modifiers: item.modifiers
+                keyCode: item.virtualKey,
+                modifiers: item.modifiers,
+                cmdChar: item.cmdChar
             )
         }
     }

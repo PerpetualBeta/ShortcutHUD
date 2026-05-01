@@ -18,7 +18,15 @@ A macOS keyboard-shortcut HUD. Press a global hotkey and a panel slides in showi
 
 ## What You See
 
-When you press the hotkey, the HUD captures the frontmost app, walks its menu structure via the Accessibility API, and lists every shortcut grouped by menu (File, Edit, View, …). A separate **macOS** pane lists the system symbolic hotkeys.
+When you press the hotkey the HUD opens an adaptive multi-column grid of every shortcut it can find for your current keyboard, grouped by source:
+
+- **Frontmost app** — the captured app's menu structure (File, Edit, View, …) walked via the Accessibility API.
+- **Per-app overrides** — any app's `NSUserKeyEquivalents` overrides (System Settings → Keyboard → App Shortcuts).
+- **Hotkey utilities** — top-level `{keyCode, modifierFlags}` preference dicts as written by Rectangle, the `KeyboardShortcuts` Swift library, and similar window-management / hotkey tools.
+- **macOS Services** — entries with a `key_equivalent` in `pbs.plist`.
+- **Hammerspoon** — `hs.hotkey.bind(...)` calls in `~/.hammerspoon/*.lua`.
+- **Keyboard Maestro** — HotKey-triggered macros in the macros plist.
+- **macOS** — the system symbolic hotkeys (`CopySymbolicHotKeys`).
 
 | Action | Key |
 |--------|-----|
@@ -27,7 +35,12 @@ When you press the hotkey, the HUD captures the frontmost app, walks its menu st
 | Activate selected | `↩` |
 | Dismiss | `⎋` or click outside |
 
-Activating an app shortcut invokes the corresponding menu item in the captured app. System shortcuts are listed for reference only in v1 (no activation).
+Activating an app shortcut invokes the corresponding menu item in the captured app. Sources where ShortcutHUD can only observe the binding (Rectangle, Hammerspoon, Services, …) are list-only — press the actual hotkey to fire them.
+
+### What gets filtered out
+
+- **Bindings owned by apps that aren't running.** Hammerspoon is dead, Rectangle quit — those entries don't appear, because the binding wouldn't fire anyway.
+- **Bindings to keys not on any connected keyboard.** F13–F20 and the numeric keypad are dropped on a MacBook-only setup; plug a Magic Keyboard with Numeric Keypad in and they reappear automatically. Detection is by HID product name.
 
 ## Resizing & Repositioning
 
@@ -85,15 +98,22 @@ This rebuilds the `.iconset` and produces `Resources/AppIcon.icns`.
 ## How It Works (Technical)
 
 1. **Global hotkey** — a `CGEventTap` at `cgSessionEventTap` / `tailAppendEventTap` listens for the configured `keyDown`. On match it posts a notification consumed by the main thread.
-2. **Menu enumeration** — `AXUIElementCopyAttributeValue` walks the frontmost app's menu bar recursively, collecting `AXMenuItem` titles, key equivalents, modifier masks, and AX glyph codes. The walk runs on a background queue with a hard timeout to keep the HUD responsive.
-3. **System shortcuts** — `CopySymbolicHotKeys` (HIToolbox) returns the macOS system shortcuts. The symbol is resolved via `dlsym` so a future macOS that strips it degrades gracefully.
-4. **Activation** — for an app shortcut, the captured `AXUIElement` is invoked via `AXUIElementPerformAction(_, kAXPressAction)` against the menu item.
+2. **Menu enumeration** — `AXUIElementCopyAttributeValue` walks the frontmost app's menu bar recursively, collecting `AXMenuItem` titles, key equivalents, modifier masks, and AX glyph codes.
+3. **Per-app preferences sweep** — every plist in `~/Library/Preferences/` whose owning app is currently running is read for two patterns: `NSUserKeyEquivalents` dictionaries and top-level `{keyCode, modifierFlags}` entries.
+4. **System sources** — `CopySymbolicHotKeys` (HIToolbox) for macOS shortcuts, `pbs.plist` `NSServicesStatus` for the Services menu, the `NSGlobalDomain` `NSUserKeyEquivalents` for global menu overrides.
+5. **Tool-specific parsers** — `~/.hammerspoon/*.lua` is regex-scanned for `hs.hotkey.bind(...)` and modal `:bind(...)` calls; `~/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist` is walked for HotKey triggers. Both gated on the providing process being alive.
+6. **Keyboard-capability filter** — `IOHIDManager` enumerates connected keyboards; their product names are matched against known Apple layouts (built-in MacBook, Magic Keyboard with/without Numeric Keypad). Shortcuts bound to keys not on any connected keyboard are dropped.
+7. **Activation** — for an app shortcut, the captured `AXUIElement` is invoked via `AXUIElementPerformAction(_, kAXPressAction)`. Other sources are list-only.
 
-## Known Limitations (v1)
+All disk and AX work runs on a background queue with hard timeouts so a slow target can't hang the HUD opening.
 
-- **System shortcuts are list-only.** Activating a system shortcut from the HUD is not yet implemented; it dismisses the HUD without firing the action.
-- **Third-party hyper-key tools** (Karabiner, Raycast, BetterTouchTool) do not appear in the HUD — there is no public macOS API exposing them.
+## Known Limitations
+
+- **Activation is app-menu-only.** Bindings discovered through preference sweeps, Hammerspoon, Keyboard Maestro, or `CopySymbolicHotKeys` are list-only — the HUD displays them but can't fire them. Press the actual hotkey to invoke.
 - **Disabled menu items** are listed but greyed out; activating them does nothing.
+- **Carbon hotkeys without a corresponding plist** don't appear unless the app stores its binding in one of the patterns above. Apps that register via `RegisterEventHotKey` purely in code, with no on-disk record, are invisible.
+- **Hammerspoon Lua parser is a regex**, not a real interpreter. `hs.hotkey.bind` calls inside complex expressions, behind variables, or computed dynamically may be missed.
+- **Third-party non-Apple keyboards** are assumed to have every key (so we don't over-filter). If your external 60% reports as "MyKeyboard" rather than a recognised Apple model, F13+ shortcuts will still appear even though you can't type them.
 
 ## Troubleshooting
 

@@ -31,17 +31,23 @@ enum ShortcutFormatter {
         return parts.joined()
     }
 
-    /// Format a system symbolic-hotkey shortcut (keyCode + modifiers in CG layout).
-    static func system(keyCode: Int, modifiers: Int) -> String {
+    /// Format a system-style shortcut (NSEvent.ModifierFlags raw layout). The
+    /// key part comes from `keyCode` if it resolves to a known glyph; otherwise
+    /// from `cmdChar` (e.g. when the source gave us only a character — like
+    /// NSUserKeyEquivalents). `keyCode` is optional because 0 is a real key
+    /// (the A key), so we can't use it as a sentinel for "no keycode".
+    static func system(keyCode: Int?, modifiers: Int, cmdChar: String = "") -> String {
         var parts: [String] = []
-        // CGEventFlags layout (matches NSEvent.ModifierFlags raw bits in the high half).
-        // The symbolichotkey plist uses NSEvent.ModifierFlags raw values.
         let flags = NSEvent.ModifierFlags(rawValue: UInt(modifiers))
         if flags.contains(.control) { parts.append("⌃") }
         if flags.contains(.option)  { parts.append("⌥") }
         if flags.contains(.shift)   { parts.append("⇧") }
         if flags.contains(.command) { parts.append("⌘") }
-        if let s = virtualKeyString(UInt16(keyCode)) { parts.append(s) }
+        if let kc = keyCode, let s = virtualKeyString(UInt16(kc)) {
+            parts.append(s)
+        } else if !cmdChar.isEmpty {
+            parts.append(cmdChar.uppercased())
+        }
         return parts.joined()
     }
 
