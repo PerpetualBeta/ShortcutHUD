@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CoreServices
 import IOKit.hid
 
 enum MenuEnumerator {
@@ -118,6 +119,60 @@ enum MenuEnumerator {
     /// Hammerspoon dotfile, uninstalled Rectangle, etc.) don't surface.
     private static func isAppRunning(bundleID: String) -> Bool {
         NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleID }
+    }
+
+    // MARK: - Jorvik registry
+
+    /// Read the `JorvikHotkeyRegistry` from every running .accessory app.
+    /// `.browser`-context entries are surfaced only when the captured app is a
+    /// registered HTTP handler. Other Jorvik apps publish `.anywhere` entries
+    /// which always show.
+    static func jorvikRegisteredHotkeys(capturedBundleID: String?) -> [ShortcutItem] {
+        let browserBundleIDs = httpHandlerBundleIDs()
+        let isBrowser = capturedBundleID
+            .map { browserBundleIDs.contains($0.lowercased()) } ?? false
+
+        var items: [ShortcutItem] = []
+        let myPID = getpid()
+        for app in NSWorkspace.shared.runningApplications {
+            // Skip ourselves: the user just pressed our hotkey to open the
+            // HUD, so listing it back at them is noise.
+            guard app.processIdentifier > 0, app.processIdentifier != myPID,
+                  app.activationPolicy == .accessory,
+                  let bundleID = app.bundleIdentifier else { continue }
+
+            let hotkeys = JorvikHotkeyRegistry.read(from: bundleID)
+            guard !hotkeys.isEmpty else { continue }
+
+            let appName = app.localizedName ?? bundleID
+            for hk in hotkeys {
+                switch hk.activeContext {
+                case .browser where !isBrowser: continue
+                default: break
+                }
+                items.append(ShortcutItem(
+                    title: hk.actionTitle,
+                    path: [appName],
+                    modifiers: Int(hk.modifiers),
+                    cmdChar: "",
+                    virtualKey: Int(hk.keyCode),
+                    glyph: nil,
+                    enabled: true,
+                    source: .system,
+                    axElement: nil
+                ))
+            }
+        }
+        return items
+    }
+
+    /// Bundle IDs of every app registered as an HTTP handler — Safari, Chrome,
+    /// Edge, Firefox, Arc, Brave, Orion, etc. Used to decide "browser frontmost".
+    private static func httpHandlerBundleIDs() -> Set<String> {
+        guard let raw = LSCopyAllHandlersForURLScheme("http" as CFString)?.takeRetainedValue() as? [String] else {
+            return []
+        }
+        return Set(raw.map { $0.lowercased() })
     }
 
     // MARK: - Keyboard capability gating
@@ -395,8 +450,15 @@ enum MenuEnumerator {
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &raw) == .success,
               let children = raw as? [AXUIElement] else { return }
 
-        for child in children {
-            let title = copyString(child, kAXTitleAttribute) ?? ""
+        for (idx, child) in children.enumerated() {
+            // The Apple menu is always the first child of the menu bar. Force
+            // its path label to "Apple" — some apps leave the title empty
+            // (system default), Electron apps explicitly title it "Apple".
+            // The forced label gives `AppDelegate.showHUD` a stable signal to
+            // promote it into its own top-level pane rather than nesting it
+            // under the captured app.
+            let rawTitle = copyString(child, kAXTitleAttribute) ?? ""
+            let title = (depth == 0 && idx == 0) ? "Apple" : rawTitle
             let enabled = copyBool(child, kAXEnabledAttribute) ?? true
 
             let cmdChar    = copyString(child, kAXMenuItemCmdCharAttribute) ?? ""

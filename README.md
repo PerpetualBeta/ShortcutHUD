@@ -18,9 +18,11 @@ A macOS keyboard-shortcut HUD. Press a global hotkey and a panel slides in showi
 
 ## What You See
 
-When you press the hotkey the HUD opens an adaptive multi-column grid of every shortcut it can find for your current keyboard, grouped by source:
+When you press the hotkey the HUD opens an adaptive multi-column grid of every shortcut it can find for your current keyboard, grouped into one outer pane per source:
 
-- **Frontmost app** — the captured app's menu structure (File, Edit, View, …) walked via the Accessibility API.
+- **Apple** — the macOS system menu (Force Quit, Lock Screen, Log Out, …) shared by every app.
+- **Frontmost app** — the captured app's menu bar walked via the Accessibility API. Each top-level menu (File, Edit, View, …) is an inner section inside the app's pane.
+- **Jorvik utilities** — every running Jorvik app publishes its registered global hotkeys via `JorvikHotkeyRegistry`; ShortcutHUD reads each one's bindings (BrowserCommander, Browser Notes, ScreenLock, WindowPin, ActiveSpace, …). Bindings tagged `.browser` are surfaced only when a web browser is frontmost.
 - **Per-app overrides** — any app's `NSUserKeyEquivalents` overrides (System Settings → Keyboard → App Shortcuts).
 - **Hotkey utilities** — top-level `{keyCode, modifierFlags}` preference dicts as written by Rectangle, the `KeyboardShortcuts` Swift library, and similar window-management / hotkey tools.
 - **macOS Services** — entries with a `key_equivalent` in `pbs.plist`.
@@ -98,12 +100,13 @@ This rebuilds the `.iconset` and produces `Resources/AppIcon.icns`.
 ## How It Works (Technical)
 
 1. **Global hotkey** — a `CGEventTap` at `cgSessionEventTap` / `tailAppendEventTap` listens for the configured `keyDown`. On match it posts a notification consumed by the main thread.
-2. **Menu enumeration** — `AXUIElementCopyAttributeValue` walks the frontmost app's menu bar recursively, collecting `AXMenuItem` titles, key equivalents, modifier masks, and AX glyph codes.
-3. **Per-app preferences sweep** — every plist in `~/Library/Preferences/` whose owning app is currently running is read for two patterns: `NSUserKeyEquivalents` dictionaries and top-level `{keyCode, modifierFlags}` entries.
-4. **System sources** — `CopySymbolicHotKeys` (HIToolbox) for macOS shortcuts, `pbs.plist` `NSServicesStatus` for the Services menu, the `NSGlobalDomain` `NSUserKeyEquivalents` for global menu overrides.
-5. **Tool-specific parsers** — `~/.hammerspoon/*.lua` is regex-scanned for `hs.hotkey.bind(...)` and modal `:bind(...)` calls; `~/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist` is walked for HotKey triggers. Both gated on the providing process being alive.
-6. **Keyboard-capability filter** — `IOHIDManager` enumerates connected keyboards; their product names are matched against known Apple layouts (built-in MacBook, Magic Keyboard with/without Numeric Keypad). Shortcuts bound to keys not on any connected keyboard are dropped.
-7. **Activation** — for an app shortcut, the captured `AXUIElement` is invoked via `AXUIElementPerformAction(_, kAXPressAction)`. Other sources are list-only.
+2. **Menu enumeration** — `AXUIElementCopyAttributeValue` walks the frontmost app's menu bar recursively, collecting `AXMenuItem` titles, key equivalents, modifier masks, and AX glyph codes. The Apple menu (always the first child of the menu bar) is split off into its own outer pane; everything else nests under a pane named after the captured app.
+3. **Jorvik registry** — every other running Jorvik app is queried via `JorvikHotkeyRegistry.read(from:)`, which reads each app's published list of registered hotkeys (action title, keyCode, modifiers, active context). Entries marked `.browser` are filtered out unless the captured app's bundle ID is registered as an `http` handler — so BrowserCommander and Browser Notes only surface when a real web browser is frontmost.
+4. **Per-app preferences sweep** — every plist in `~/Library/Preferences/` whose owning app is currently running is read for two patterns: `NSUserKeyEquivalents` dictionaries and top-level `{keyCode, modifierFlags}` entries.
+5. **System sources** — `CopySymbolicHotKeys` (HIToolbox) for macOS shortcuts, `pbs.plist` `NSServicesStatus` for the Services menu, the `NSGlobalDomain` `NSUserKeyEquivalents` for global menu overrides.
+6. **Tool-specific parsers** — `~/.hammerspoon/*.lua` is regex-scanned for `hs.hotkey.bind(...)` and modal `:bind(...)` calls; `~/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist` is walked for HotKey triggers. Both gated on the providing process being alive.
+7. **Keyboard-capability filter** — `IOHIDManager` enumerates connected keyboards; their product names are matched against known Apple layouts (built-in MacBook, Magic Keyboard with/without Numeric Keypad). Shortcuts bound to keys not on any connected keyboard are dropped.
+8. **Activation** — for an app shortcut, the captured `AXUIElement` is invoked via `AXUIElementPerformAction(_, kAXPressAction)`. Other sources are list-only.
 
 All disk and AX work runs on a background queue with hard timeouts so a slow target can't hang the HUD opening.
 

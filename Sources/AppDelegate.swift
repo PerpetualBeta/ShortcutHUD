@@ -20,10 +20,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
     let updateChecker = JorvikUpdateChecker(repoName: "ShortcutHUD")
 
     var activationKeyCode: UInt16 = Prefs.loadKeyCode() {
-        didSet { HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers) }
+        didSet {
+            HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers)
+            republishHotkey()
+        }
     }
     var activationModifiers: NSEvent.ModifierFlags = Prefs.loadModifiers() {
-        didSet { HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers) }
+        didSet {
+            HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers)
+            republishHotkey()
+        }
     }
 
     func activationDisplayString() -> String {
@@ -33,6 +39,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
 
     func persistShortcut() {
         Prefs.save(keyCode: activationKeyCode, modifiers: activationModifiers)
+    }
+
+    private func republishHotkey() {
+        JorvikHotkeyRegistry.publish([
+            JorvikHotkey(actionTitle: "Open ShortcutHUD",
+                         keyCode: activationKeyCode,
+                         modifiers: activationModifiers,
+                         activeContext: .anywhere),
+        ])
     }
 
     // MARK: - Lifecycle
@@ -65,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         // responds, so dispatch it off-main; the install retries when the app
         // becomes active again (handler below).
         HotkeyTap.setShortcut(keyCode: activationKeyCode, modifiers: activationModifiers)
+        republishHotkey()
         if !HotkeyTap.accessGranted {
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = HotkeyTap.requestAccess()
@@ -162,7 +178,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         // and the macOS system symbolic hotkeys. AX and disk I/O run on
         // background queues with hard timeouts.
         var combined: [ShortcutItem] = []
-        combined.append(contentsOf: MenuEnumerator.shortcuts(forPID: capturedPID))
+        // Wrap the captured app's menu items in a pane named after the app, so
+        // File/Edit/View become inner sections of "Microsoft Edge" (or whatever
+        // is frontmost) rather than peers of Rectangle / ScreenLock / etc.
+        // The Apple menu is system-owned and stays its own top-level pane —
+        // the walker tags those items with path[0] == "Apple", so we leave
+        // them alone instead of nesting under the captured app.
+        let capturedPaneName = front.localizedName ?? "App"
+        combined.append(contentsOf: MenuEnumerator.shortcuts(forPID: capturedPID).map { item in
+            item.paneTitle == "Apple" ? item : item.prepending(capturedPaneName)
+        })
+        combined.append(contentsOf: MenuEnumerator.jorvikRegisteredHotkeys(capturedBundleID: front.bundleIdentifier))
         combined.append(contentsOf: MenuEnumerator.userKeyEquivalents())
         combined.append(contentsOf: MenuEnumerator.globalUserKeyEquivalents())
         combined.append(contentsOf: MenuEnumerator.servicesShortcuts())
@@ -282,7 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         guard let s = screen else { return }
         let size = panel.frame.size
         let x = s.visibleFrame.midX - size.width / 2
-        let y = s.visibleFrame.midY - size.height / 2 + 80   // sit a touch above centre
+        let y = s.visibleFrame.midY - size.height / 2
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 

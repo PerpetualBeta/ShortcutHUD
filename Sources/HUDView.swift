@@ -20,22 +20,40 @@ final class HUDState {
         return items.filter { $0.searchHaystack.contains(q) }
     }
 
-    var grouped: [(group: String, items: [ShortcutItem])] {
+    /// Two-level grouping: outer pane (`path[0]`) → inner sections (`path[1]`,
+    /// or a single nameless section when items have only one path component).
+    /// Captured-app items get nested into File/Edit/View under the app's pane;
+    /// other sources collapse to a single nameless inner section.
+    var grouped: [HUDPane] {
         let list = filtered
-        var order: [String] = []
-        var bucket: [String: [ShortcutItem]] = [:]
+        var paneOrder: [String] = []
+        var paneItems: [String: [ShortcutItem]] = [:]
         for item in list {
-            let key = item.groupTitle.isEmpty ? "Other" : item.groupTitle
-            if bucket[key] == nil { order.append(key) }
-            bucket[key, default: []].append(item)
+            let key = item.paneTitle.isEmpty ? "Other" : item.paneTitle
+            if paneItems[key] == nil { paneOrder.append(key) }
+            paneItems[key, default: []].append(item)
         }
-        // Always put macOS section last for predictability.
+        // Always put the macOS pane last for predictability.
         let macOS = "macOS"
-        if order.contains(macOS) {
-            order.removeAll { $0 == macOS }
-            order.append(macOS)
+        if paneOrder.contains(macOS) {
+            paneOrder.removeAll { $0 == macOS }
+            paneOrder.append(macOS)
         }
-        return order.map { ($0, bucket[$0] ?? []) }
+
+        return paneOrder.map { pane in
+            let items = paneItems[pane] ?? []
+            var sectionOrder: [String?] = []
+            var sectionItems: [String?: [ShortcutItem]] = [:]
+            for item in items {
+                let key = item.sectionTitle
+                if sectionItems[key] == nil { sectionOrder.append(key) }
+                sectionItems[key, default: []].append(item)
+            }
+            let sections = sectionOrder.map { name in
+                HUDPaneSection(name: name, items: sectionItems[name] ?? [])
+            }
+            return HUDPane(name: pane, sections: sections)
+        }
     }
 
     func clampSelection() {
@@ -62,10 +80,31 @@ final class HUDState {
     }
 }
 
+struct HUDPaneSection: Identifiable {
+    let name: String?              // nil = anonymous section (no inner header)
+    let items: [ShortcutItem]
+    // Stable id derived from name. SwiftUI ForEach must see the same id for
+    // a given section across recomputes of `state.grouped`, otherwise it
+    // tears the view tree down on every selection change and the scroll
+    // view fights the user's gesture.
+    var id: String { name ?? "__nil__" }
+}
+
+struct HUDPane: Identifiable {
+    let name: String
+    let sections: [HUDPaneSection]
+    var id: String { name }
+}
+
 struct HUDView: View {
     let state: HUDState
     let onActivate: (ShortcutItem) -> Void
     @FocusState private var searchFocused: Bool
+    /// Last cursor position seen by an onHover. Used to ignore "phantom"
+    /// hover events that fire when rows slide under a stationary cursor
+    /// during a scroll — those would otherwise churn `selectedID` and
+    /// trigger re-renders that fight the user's gesture.
+    @State private var lastHoverMouseLocation: CGPoint = .zero
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,41 +124,59 @@ struct HUDView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(state.grouped.enumerated()), id: \.offset) { _, section in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(section.group.uppercased())
+                    // Eager VStack (not Lazy): pane count is tiny (<20) and a
+                    // lazy outer container revises its height estimate as more
+                    // panes materialise during scroll, which makes the
+                    // scrollbar resize as you drag it.
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(state.grouped) { pane in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(pane.name.uppercased())
                                     .font(.system(size: 11, weight: .semibold))
                                     .tracking(0.6)
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 12)
                                     .padding(.top, 10)
 
-                                LazyVGrid(
-                                    columns: [GridItem(.adaptive(minimum: 340), spacing: 4)],
-                                    alignment: .leading,
-                                    spacing: 2
-                                ) {
-                                    ForEach(section.items) { item in
-                                        ShortcutRow(
-                                            item: item,
-                                            isSelected: item.id == state.selectedID
-                                        )
-                                        .id(item.id)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            if item.enabled { onActivate(item) }
+                                ForEach(pane.sections) { section in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        if let sectionName = section.name {
+                                            Text(sectionName)
+                                                .font(.system(size: 10, weight: .medium))
+                                                .tracking(0.4)
+                                                .foregroundStyle(.tertiary)
+                                                .padding(.horizontal, 14)
+                                                .padding(.top, 4)
                                         }
-                                        .onHover { hovering in
-                                            if hovering {
-                                                state.lastSelectionFromKeyboard = false
-                                                state.selectedID = item.id
+                                        LazyVGrid(
+                                            columns: [GridItem(.adaptive(minimum: 340), spacing: 4)],
+                                            alignment: .leading,
+                                            spacing: 2
+                                        ) {
+                                            ForEach(section.items) { item in
+                                                ShortcutRow(
+                                                    item: item,
+                                                    isSelected: item.id == state.selectedID
+                                                )
+                                                .id(item.id)
+                                                .contentShape(Rectangle())
+                                                .onTapGesture {
+                                                    if item.enabled { onActivate(item) }
+                                                }
+                                                .onHover { hovering in
+                                                    guard hovering else { return }
+                                                    let current = NSEvent.mouseLocation
+                                                    guard current != lastHoverMouseLocation else { return }
+                                                    lastHoverMouseLocation = current
+                                                    state.lastSelectionFromKeyboard = false
+                                                    state.selectedID = item.id
+                                                }
                                             }
                                         }
+                                        .padding(.horizontal, 6)
                                     }
                                 }
-                                .padding(.horizontal, 6)
-                                .padding(.bottom, 8)
+                                .padding(.bottom, 4)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
