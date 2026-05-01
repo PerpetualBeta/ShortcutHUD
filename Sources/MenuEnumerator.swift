@@ -1,6 +1,5 @@
 import AppKit
 import ApplicationServices
-import CoreServices
 import IOKit.hid
 
 enum MenuEnumerator {
@@ -166,13 +165,12 @@ enum MenuEnumerator {
         return items
     }
 
-    /// Bundle IDs of every app registered as an HTTP handler — Safari, Chrome,
+    /// Bundle IDs of every app registered to open `http` URLs — Safari, Chrome,
     /// Edge, Firefox, Arc, Brave, Orion, etc. Used to decide "browser frontmost".
     private static func httpHandlerBundleIDs() -> Set<String> {
-        guard let raw = LSCopyAllHandlersForURLScheme("http" as CFString)?.takeRetainedValue() as? [String] else {
-            return []
-        }
-        return Set(raw.map { $0.lowercased() })
+        guard let url = URL(string: "https://example.com") else { return [] }
+        let appURLs = NSWorkspace.shared.urlsForApplications(toOpen: url)
+        return Set(appURLs.compactMap { Bundle(url: $0)?.bundleIdentifier?.lowercased() })
     }
 
     // MARK: - Keyboard capability gating
