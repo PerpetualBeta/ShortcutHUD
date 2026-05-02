@@ -55,6 +55,8 @@ Click the menu-bar icon → **Settings…**
 - **Keyboard Shortcut** — record any combination
 - **Accessibility** — status + grant button
 - **Input Monitoring** — status + grant button
+- **Menu bar icon pill** — optional grey background for stronger contrast on busy or wallpaper-tinted menu bars (off by default)
+- **Launch at Login** — start automatically when you log in
 - **Auto-update** — check for new versions on a configurable schedule
 
 ## Permissions
