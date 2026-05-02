@@ -53,6 +53,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        migrateLegacyPillColorKey()
+
         NSApp.setActivationPolicy(.accessory)
 
         // Prompt for AX permission on first launch — both menu enumeration and the
@@ -62,17 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         )
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            JorvikMenuBarPill.apply(to: button)
-        }
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
-
-        DistributedNotificationCenter.default.addObserver(
-            self, selector: #selector(appearanceChanged),
-            name: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil
-        )
 
         // Configure tap with current shortcut and try to install it. Input
         // Monitoring is a separate TCC permission from Accessibility — without
@@ -102,23 +96,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         updateChecker.checkOnSchedule()
     }
 
-    @objc private func appearanceChanged() {
-        if let button = statusItem.button { JorvikMenuBarPill.refresh(on: button) }
+    // One-shot removal of the user-chosen pill colour key from the old design.
+    // The new pill uses fixed grey/light colours; the key is dead weight.
+    private func migrateLegacyPillColorKey() {
+        let migrated = "didMigratePillColorV2"
+        if UserDefaults.standard.bool(forKey: migrated) { return }
+        UserDefaults.standard.removeObject(forKey: "menuBarPillColor")
+        UserDefaults.standard.set(true, forKey: migrated)
     }
 
     /// Switches the menu-bar icon to a warning glyph when the global hotkey tap
     /// isn't installed. The user reaches Settings via the existing menu either way.
-    private func updateHotkeyState() {
+    func updateHotkeyState() {
         guard let button = statusItem?.button else { return }
         let installed = HotkeyTap.current != nil
         let symbolName = installed ? "command.square" : "exclamationmark.triangle.fill"
         let description = installed ? "ShortcutHUD" : "ShortcutHUD — Input Monitoring required"
-        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description) {
-            image.isTemplate = true
-            button.image = image
-        }
+        button.image = JorvikMenuBarPill.icon(
+            symbolName: symbolName,
+            tint: installed ? nil : .systemOrange,
+            accessibilityDescription: description
+        )
         button.toolTip = installed ? nil : "Input Monitoring required — open Settings to grant access"
-        JorvikMenuBarPill.refresh(on: button)
     }
 
     @objc private func appBecameActive() {

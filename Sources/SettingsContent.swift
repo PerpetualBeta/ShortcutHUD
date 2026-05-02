@@ -62,6 +62,8 @@ struct ShortcutHUDSettingsContent: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+
+            MenuBarPillSettings { delegate.updateHotkeyState() }
         }
         .onAppear { refreshPermissionState() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
