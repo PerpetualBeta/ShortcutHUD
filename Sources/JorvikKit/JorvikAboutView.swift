@@ -58,7 +58,31 @@ struct JorvikAboutView: View {
         .frame(width: 300)
     }
 
+    /// Cached window so repeat invocations focus the existing one instead
+    /// of stacking duplicates. `isReleasedWhenClosed = false` keeps the
+    /// object alive after the user closes it; we just re-show.
+    private static var existingWindow: NSWindow?
+
     static func showWindow(appName: String, repoName: String, productPage: String? = nil) {
+        if let window = existingWindow {
+            // If the cached window is hidden, bring it to the active space so
+            // the user isn't yanked to wherever it was last shown. If it's
+            // still visible on another space, leave default behavior — macOS
+            // will switch to that space, which is what the user expects when
+            // a window of theirs is already open elsewhere.
+            if !window.isVisible {
+                window.collectionBehavior.insert(.moveToActiveSpace)
+                window.makeKeyAndOrderFront(nil)
+                DispatchQueue.main.async {
+                    window.collectionBehavior.remove(.moveToActiveSpace)
+                }
+            } else {
+                window.makeKeyAndOrderFront(nil)
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let controller = NSHostingController(rootView: JorvikAboutView(
             appName: appName,
             repoName: repoName,
@@ -75,5 +99,6 @@ struct JorvikAboutView: View {
         JorvikWindowHelper.centreOnActiveDisplay(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        existingWindow = window
     }
 }

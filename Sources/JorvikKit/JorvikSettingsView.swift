@@ -120,6 +120,25 @@ struct JorvikSettingsView<AppSettings: View>: View {
     }
 
     static func showWindow(appName: String, updateChecker: JorvikUpdateChecker, @ViewBuilder appSettings: @escaping () -> AppSettings) {
+        if let window = JorvikSettingsWindowCache.existingWindow {
+            // If the cached window is hidden, bring it to the active space so
+            // the user isn't yanked to wherever it was last shown. If it's
+            // still visible on another space, leave default behavior — macOS
+            // will switch to that space, which is what the user expects when
+            // a window of theirs is already open elsewhere.
+            if !window.isVisible {
+                window.collectionBehavior.insert(.moveToActiveSpace)
+                window.makeKeyAndOrderFront(nil)
+                DispatchQueue.main.async {
+                    window.collectionBehavior.remove(.moveToActiveSpace)
+                }
+            } else {
+                window.makeKeyAndOrderFront(nil)
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let view = JorvikSettingsView(
             appName: appName,
             updateChecker: updateChecker,
@@ -139,5 +158,13 @@ struct JorvikSettingsView<AppSettings: View>: View {
         JorvikWindowHelper.centreOnActiveDisplay(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        JorvikSettingsWindowCache.existingWindow = window
     }
+}
+
+/// Non-generic cache for the settings window instance. `JorvikSettingsView`
+/// is generic over the app-specific settings type, and Swift doesn't allow
+/// static stored properties inside generic types — so the cache sits here.
+private enum JorvikSettingsWindowCache {
+    static var existingWindow: NSWindow?
 }
