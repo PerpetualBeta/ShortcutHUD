@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import SwiftUI
+import Sparkle
 
 @MainActor
 @Observable
@@ -18,6 +19,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
     private var capturedPID: pid_t = 0
 
     let updateChecker = JorvikUpdateChecker(repoName: "ShortcutHUD")
+
+    // @ObservationIgnored — @Observable's macro can't transform `lazy`.
+    @ObservationIgnored let sparkleUserDriverDelegate = ShortcutHUDUserDriverDelegate()
+    @ObservationIgnored lazy var sparkleUpdater = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: sparkleUserDriverDelegate
+    )
 
     var activationKeyCode: UInt16 = Prefs.loadKeyCode() {
         didSet {
@@ -93,7 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
             name: NSApplication.didBecomeActiveNotification, object: nil
         )
 
-        updateChecker.checkOnSchedule()
+        // Sparkle handles update polling now. JorvikUpdateChecker instance
+        // remains because JorvikSettingsView.showWindow still requires one
+        // as a parameter, pending JorvikKit retirement (§11.5).
+        _ = sparkleUpdater  // forces lazy init so Sparkle starts at launch
+        // updateChecker.checkOnSchedule()  // disabled — Sparkle owns this now
     }
 
     // One-shot removal of the user-chosen pill colour key from the old design.
@@ -128,15 +141,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
     // MARK: - Status menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        let actions: [JorvikMenuBuilder.ActionItem] = [
+            .init(title: "Check for Updates\u{2026}", action: #selector(checkForUpdates(_:)), target: self)
+        ]
         let built = JorvikMenuBuilder.buildMenu(
             appName: "ShortcutHUD",
             aboutAction: #selector(openAbout),
             settingsAction: #selector(openSettings),
-            target: self
+            target: self,
+            actions: actions
         )
         menu.removeAllItems()
         for item in built.items { built.removeItem(item); menu.addItem(item) }
     }
+
+    @objc func checkForUpdates(_ sender: Any?) { sparkleUpdater.checkForUpdates(sender) }
 
     @objc private func openAbout() {
         JorvikAboutView.showWindow(
@@ -331,4 +350,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
         if let item = hudState.selectedItem { activate(item) }
     }
     func hudDismiss() { dismissHUD() }
+}
+
+/// LSUIElement apps don't auto-activate when they present windows, so
+/// Sparkle's update dialogs would appear behind whatever app is currently
+/// key. This brings ShortcutHUD frontmost just before each modal.
+final class ShortcutHUDUserDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
+    func standardUserDriverWillShowModalAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+    }
 }
