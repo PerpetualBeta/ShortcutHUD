@@ -18,8 +18,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
     private var liveItems: [ShortcutItem] = []
     private var capturedPID: pid_t = 0
 
-    let updateChecker = JorvikUpdateChecker(repoName: "ShortcutHUD")
-
     // @ObservationIgnored — @Observable's macro can't transform `lazy`.
     @ObservationIgnored let sparkleUserDriverDelegate = ShortcutHUDUserDriverDelegate()
     @ObservationIgnored lazy var sparkleUpdater = SPUStandardUpdaterController(
@@ -102,11 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
             name: NSApplication.didBecomeActiveNotification, object: nil
         )
 
-        // Sparkle handles update polling now. JorvikUpdateChecker instance
-        // remains because JorvikSettingsView.showWindow still requires one
-        // as a parameter, pending JorvikKit retirement (§11.5).
         _ = sparkleUpdater  // forces lazy init so Sparkle starts at launch
-        // updateChecker.checkOnSchedule()  // disabled — Sparkle owns this now
     }
 
     // One-shot removal of the user-chosen pill colour key from the old design.
@@ -170,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
 
     @objc private func openSettings() {
         let delegate = self
-        JorvikSettingsView.showWindow(appName: "ShortcutHUD", updateChecker: updateChecker) {
+        JorvikSettingsView.showWindow(appName: "ShortcutHUD") {
             ShortcutHUDSettingsContent(delegate: delegate)
         }
     }
