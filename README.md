@@ -86,11 +86,11 @@ ShortcutHUD uses Swift Package Manager. No Xcode project is required.
 
 ```bash
 cd ~/Desktop/"Jorvik Software"/ShortcutHUD
-./build.sh
-open _BuildOutput/ShortcutHUD.app
+gmake build
+open .build/ShortcutHUD.app
 ```
 
-The build script runs `swift build -c release`, then assembles the `.app` bundle in `_BuildOutput/` with the executable, icon, and Info.plist.
+Requires GNU Make 4.x — `brew install make` installs it as `gmake`. The target is defined in the shared `release.mk` from `jorvik-release/`.
 
 To regenerate the app icon from `generate_icon.swift`:
 
