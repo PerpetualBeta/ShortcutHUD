@@ -63,6 +63,8 @@ struct ShortcutHUDSettingsContent: View {
                     .foregroundStyle(.secondary)
             }
 
+            MenuBarVisibilitySettings()
+
             MenuBarPillSettings { delegate.updateHotkeyState() }
         }
         .onAppear { refreshPermissionState() }

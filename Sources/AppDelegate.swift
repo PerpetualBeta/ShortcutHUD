@@ -7,7 +7,7 @@ import Sparkle
 @Observable
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDelegate {
 
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
     private var hudPanel: HUDPanel?
     private var hudHostingController: NSHostingController<HUDView>?
     private let hudState = HUDState()
@@ -70,10 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
             ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         )
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem.menu = menu
+        createStatusItem()
 
         // Configure tap with current shortcut and try to install it. Input
         // Monitoring is a separate TCC permission from Accessibility — without
@@ -107,10 +104,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.updateHotkeyState()
+            Task { @MainActor in self?.updateHotkeyState() }
+        }
+
+        // Create or remove the status item when the user toggles its
+        // visibility in Settings. Relaunch is the escape hatch for re-showing.
+        NotificationCenter.default.addObserver(
+            forName: JorvikStatusItemVisibility.didChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.applyStatusItemVisibility() }
         }
 
         _ = sparkleUpdater  // forces lazy init so Sparkle starts at launch
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        JorvikStatusItemVisibility.handleReopen()
+        return true
+    }
+
+    /// Creates the menu-bar status item, gated on the persisted visibility
+    /// flag so a hidden icon stays hidden across launches.
+    private func createStatusItem() {
+        guard JorvikStatusItemVisibility.isVisible else { return }
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let menu = NSMenu()
+        menu.delegate = self
+        statusItem?.menu = menu
+        updateHotkeyState()
+    }
+
+    func applyStatusItemVisibility() {
+        if JorvikStatusItemVisibility.isVisible {
+            if statusItem == nil { createStatusItem() }
+        } else if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
     }
 
     // One-shot removal of the user-chosen pill colour key from the old design.
