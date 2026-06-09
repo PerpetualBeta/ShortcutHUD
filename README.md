@@ -55,8 +55,11 @@ Click the menu-bar icon → **Settings…**
 - **Keyboard Shortcut** — record any combination
 - **Accessibility** — status + grant button
 - **Input Monitoring** — status + grant button
+- **Show icon in menu bar** — hide the menu-bar icon while ShortcutHUD keeps running (still reachable via its keyboard shortcut). Your choice persists across launches, including login auto-start. *Shown only on macOS 14–15 — on macOS 26 (Tahoe) and later, use System Settings → Menu Bar, which provides this natively.*
 - **Menu bar icon pill** — optional grey background for stronger contrast on busy or wallpaper-tinted menu bars (off by default)
 - **Launch at Login** — start automatically when you log in
+
+If you've hidden the menu-bar icon and want it back, simply re-open ShortcutHUD from your Applications folder — it reappears immediately.
 
 Auto-updates are handled by Sparkle. Use the **Check for Updates…** entry in the menu to check on demand; Sparkle's prompt offers an "Automatically download and install updates in the future" checkbox the first time an update is available.
 
