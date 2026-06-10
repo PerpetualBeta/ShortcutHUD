@@ -144,4 +144,4 @@ defaults delete cc.jorviksoftware.ShortcutHUD "NSWindow Frame ShortcutHUD.HUDPan
 
 ---
 
-ShortcutHUD is provided by [Jorvik Software](https://jorviksoftware.cc/utilities/shortcuthud). If you find it useful, consider [buying me a coffee](https://jorviksoftware.cc/donate).
+ShortcutHUD is provided by [Jorvik Software](https://jorviksoftware.cc/). If you find it useful, consider [buying me a coffee](https://jorviksoftware.cc/donate).
