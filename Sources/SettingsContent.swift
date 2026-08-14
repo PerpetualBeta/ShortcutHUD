@@ -3,8 +3,11 @@ import AppKit
 
 struct ShortcutHUDSettingsContent: View {
     let delegate: AppDelegate
-    @State private var axGranted: Bool = AXIsProcessTrusted()
-    @State private var inputMonitoringGranted: Bool = HotkeyTap.current != nil
+    /// Both kept current by JorvikKit — see `JorvikPermissionWatcher`. Accessibility has a
+    /// system announcement; Input Monitoring has none, and here it is inferred from whether
+    /// the event tap could actually be created, which is the only thing that matters to us.
+    @StateObject private var accessibility = JorvikPermissionWatcher.accessibility()
+    @StateObject private var inputMonitoring = JorvikPermissionWatcher { HotkeyTap.current != nil }
 
     var body: some View {
         Group {
@@ -29,15 +32,13 @@ struct ShortcutHUDSettingsContent: View {
                 HStack {
                     Text("Accessibility")
                     Spacer()
-                    if axGranted {
+                    if accessibility.isGranted {
                         Label("Granted", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.caption)
                     } else {
                         Button("Grant Access") {
-                            _ = AXIsProcessTrustedWithOptions(
-                                ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-                            )
+                            JorvikPermissionWatcher.promptForAccessibility()
                         }
                         .font(.caption)
                     }
@@ -45,15 +46,13 @@ struct ShortcutHUDSettingsContent: View {
                 HStack {
                     Text("Input Monitoring")
                     Spacer()
-                    if inputMonitoringGranted {
+                    if inputMonitoring.isGranted {
                         Label("Granted", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.caption)
                     } else {
                         Button("Grant Access") {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-                                NSWorkspace.shared.open(url)
-                            }
+                            JorvikPermissionWatcher.openSettings(pane: .inputMonitoring)
                         }
                         .font(.caption)
                     }
@@ -67,14 +66,5 @@ struct ShortcutHUDSettingsContent: View {
 
             MenuBarPillSettings { delegate.updateHotkeyState() }
         }
-        .onAppear { refreshPermissionState() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshPermissionState()
-        }
-    }
-
-    private func refreshPermissionState() {
-        axGranted = AXIsProcessTrusted()
-        inputMonitoringGranted = HotkeyTap.current != nil
     }
 }
