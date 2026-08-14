@@ -8,6 +8,14 @@ A macOS keyboard-shortcut HUD. Press a global hotkey and a panel slides in showi
 
 ## Installation
 
+Install it with [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask perpetualbeta/jorvik/shortcuthud
+```
+
+Or download it from the [latest release](https://github.com/PerpetualBeta/ShortcutHUD/releases/latest). Then:
+
 1. Double-click `ShortcutHUD.app` to launch it (or build from source — see below)
 2. A `⌘` icon appears in your menu bar
 3. Grant **Accessibility** and **Input Monitoring** permission when prompted
