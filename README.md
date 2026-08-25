@@ -22,7 +22,7 @@ Or download it from the [latest release](https://github.com/PerpetualBeta/Shortc
 
 ## Default Hotkey
 
-`⌘⌥⌃⇧ /` (the hyper-key plus forward slash). Configurable in Settings.
+`control` `option` `shift` `command` `/` (the hyper-key plus forward slash). Configurable in Settings.
 
 ## What You See
 
@@ -41,9 +41,9 @@ When you press the hotkey the HUD opens an adaptive multi-column grid of every s
 | Action | Key |
 |--------|-----|
 | Filter | type to fuzzy-match against title and path |
-| Move selection | `↑` / `↓` |
-| Activate selected | `↩` |
-| Dismiss | `⎋` or click outside |
+| Move selection | `up` / `down` |
+| Activate selected | `return` |
+| Dismiss | `esc` or click outside |
 
 Activating an app shortcut invokes the corresponding menu item in the captured app. Sources where ShortcutHUD can only observe the binding (Rectangle, Hammerspoon, Services, …) are list-only — press the actual hotkey to fire them.
 
