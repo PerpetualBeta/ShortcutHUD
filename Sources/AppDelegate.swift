@@ -313,7 +313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
             backing: .buffered, defer: false
         )
         p.minSize = NSSize(width: 520, height: 400)
-        p.setFrameAutosaveName("ShortcutHUD.HUDPanel")
+        // Deliberately no setFrameAutosaveName. AppKit keys the saved frame by screen
+        // configuration and re-asserts it at launch, which fights any window manager that
+        // also remembers the frame. Estate rule: window geometry belongs to
+        // RememberMyWindows. This panel sits at .floating, so RMW does not manage it and
+        // the panel now opens at its default 880x680 on every launch.
         p.isFloatingPanel = true
         p.level = .floating
         // Appear on whichever space the user is on when the hotkey fires, and
