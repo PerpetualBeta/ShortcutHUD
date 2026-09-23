@@ -49,6 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, HUDDel
     }
 
     private func republishHotkey() {
+        // Publish nothing when the shortcut has been cleared. Key code 0 is the
+        // letter A, so a cleared binding would otherwise advertise itself as A
+        // in this app's own HUD. The read side skips an app that publishes an
+        // empty list, so this is the right way to say "nothing here".
+        guard activationKeyCode != 0 else {
+            JorvikHotkeyRegistry.publish([])
+            return
+        }
         JorvikHotkeyRegistry.publish([
             JorvikHotkey(actionTitle: "Open ShortcutHUD",
                          keyCode: activationKeyCode,

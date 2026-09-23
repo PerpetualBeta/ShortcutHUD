@@ -24,6 +24,17 @@ struct ShortcutHUDSettingsContent: View {
                     ),
                     displayString: { delegate.activationDisplayString() },
                     onChanged: { delegate.persistShortcut() },
+                    onClear: {
+                        // There is no menu item that opens the HUD, and there
+                        // cannot be: showHUD() reads the frontmost app, so
+                        // opening it from this app's own menu would only ever
+                        // show this app's menus. Clearing therefore leaves no
+                        // way in until a new shortcut is recorded here, which
+                        // the README now says plainly.
+                        delegate.activationKeyCode = 0
+                        delegate.activationModifiers = []
+                        delegate.persistShortcut()
+                    },
                     eventTapToDisable: HotkeyTap.current
                 )
             }

@@ -24,6 +24,8 @@ Or download it from the [latest release](https://github.com/PerpetualBeta/Shortc
 
 `control` `option` `shift` `command` `/` (the hyper-key plus forward slash). Configurable in Settings.
 
+It can also be cleared, which turns ShortcutHUD off. Be aware of what that means here: the hotkey is the only way to open the HUD, and there is no menu item to fall back on, because the HUD reads whichever app is frontmost and opening it from ShortcutHUD's own menu would only ever show ShortcutHUD's menus. To get it back, open Settings from the menu-bar icon and record a new shortcut.
+
 ## What You See
 
 When you press the hotkey the HUD opens an adaptive multi-column grid of every shortcut it can find for your current keyboard, grouped into one outer pane per source:
@@ -60,10 +62,10 @@ The HUD is resizable from any edge and draggable from the background (anywhere t
 
 Click the menu-bar icon → **Settings…**
 
-- **Keyboard Shortcut** — record any combination
+- **Keyboard Shortcut** — record any combination, or clear it. Clearing turns the HUD off until you record a new one
 - **Accessibility** — status + grant button
 - **Input Monitoring** — status + grant button
-- **Show icon in menu bar** — hide the menu-bar icon while ShortcutHUD keeps running (still reachable via its keyboard shortcut). Your choice persists across launches, including login auto-start. *Shown only on macOS 14–15 — on macOS 26 (Tahoe) and later, use System Settings → Menu Bar, which provides this natively.*
+- **Show icon in menu bar** — hide the menu-bar icon while ShortcutHUD keeps running (still reachable via its keyboard shortcut, if one is bound; if you have cleared that too, re-open ShortcutHUD from Applications to bring the icon back). Your choice persists across launches, including login auto-start. *Shown only on macOS 14–15 — on macOS 26 (Tahoe) and later, use System Settings → Menu Bar, which provides this natively.*
 - **Menu bar icon pill** — optional grey background for stronger contrast on busy or wallpaper-tinted menu bars (off by default)
 - **Launch at Login** — start automatically when you log in
 
