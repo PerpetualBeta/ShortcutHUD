@@ -40,37 +40,44 @@ struct ShortcutHUDSettingsContent: View {
             }
 
             Section("Permissions") {
-                HStack {
-                    Text("Accessibility")
-                    Spacer()
-                    if accessibility.isGranted {
-                        Label("Granted", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Accessibility")
+                        Spacer()
+                        if accessibility.isGranted {
+                            Label("Granted", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        } else {
+                            Button("Grant Access") {
+                                JorvikPermissionWatcher.promptForAccessibility()
+                            }
                             .font(.caption)
-                    } else {
-                        Button("Grant Access") {
-                            JorvikPermissionWatcher.promptForAccessibility()
                         }
-                        .font(.caption)
                     }
+                    Text("ShortcutHUD needs Accessibility to read app menus.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                HStack {
-                    Text("Input Monitoring")
-                    Spacer()
-                    if inputMonitoring.isGranted {
-                        Label("Granted", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Input Monitoring")
+                        Spacer()
+                        if inputMonitoring.isGranted {
+                            Label("Granted", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        } else {
+                            Button("Grant Access") {
+                                JorvikPermissionWatcher.openSettings(pane: .inputMonitoring)
+                            }
                             .font(.caption)
-                    } else {
-                        Button("Grant Access") {
-                            JorvikPermissionWatcher.openSettings(pane: .inputMonitoring)
                         }
-                        .font(.caption)
                     }
+                    Text("ShortcutHUD needs Input Monitoring to listen for the global hotkey.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Text("ShortcutHUD needs Accessibility to read app menus and Input Monitoring to listen for the global hotkey. Both are granted in System Settings \u{203A} Privacy & Security.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
 
             MenuBarVisibilitySettings()
